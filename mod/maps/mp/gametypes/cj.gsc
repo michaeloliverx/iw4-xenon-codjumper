@@ -52,6 +52,7 @@ onPlayerSpawned()
 	{
 		self waittill("spawned_player");
 
+		self thread RemoveFields();
 		self thread watch_player_buttons();
 		self thread watch_player_commands();
 		self thread replenish_ammo();
@@ -413,4 +414,40 @@ delete_unwanted_entities()
 		if (dodelete)
 			ents[i] delete ();
 	}
+}
+
+RemoveFields()
+{
+    if(!isdefined(level.FieldsRemoved))
+    {
+        level.FieldsRemoved = false;
+    }
+    if(level.FieldsRemoved == true)
+    {
+        return;
+    }
+    level.FieldsRemoved = true;
+    minefields = getentarray("minefield", "targetname");
+    radiationFields = getentarray("radiation", "targetname");
+    for (i = 0; i < minefields.size; i++) 
+    {
+        if (minefields[i])
+        {
+	        self iPrintln("^3Removed " + minefields.size + " Minefields Fields");
+	        minefields[i] delete();
+	        wait .1;
+
+        }
+    }
+
+    for (i = 0; i < radiationFields.size; i++) 
+    {
+        if (radiationFields[i])
+        {
+	        self iPrintln("^3Removed " + radiationFields.size + " Radiation Fields");
+	        radiationFields[i] delete();
+	        wait .1;
+
+        }
+    }
 }
