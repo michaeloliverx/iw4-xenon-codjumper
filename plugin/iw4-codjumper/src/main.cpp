@@ -1,7 +1,7 @@
 #include <xtl.h>
 #include <cstdint>
 #include <string>
-
+#include <fstream>
 #include "detour.h"
 #include "structs.h"
 
@@ -52,13 +52,9 @@ namespace game
 	Scr_Function *(*Common_GetFunction)(const char **pName, int *type) = reinterpret_cast<Scr_Function *(*)(const char **pName, int *type)>(0x8224D450);
 	Scr_Function *(*Objectives_GetFunction)(const char **pName, int *type) = reinterpret_cast<Scr_Function *(*)(const char **pName, int *type)>(0x82259268);
 	Scr_Function *(*BuiltIn_GetFunction)(const char **pName, int *type) = reinterpret_cast<Scr_Function *(*)(const char **pName, int *type)>(0x82254B50);
-	char *(*Scr_AddSourceBuffer)(const char *filename, const char *extFilename, const char *codePos, bool archive) = reinterpret_cast<char *(*)(const char *filename, const char *extFilename, const char *codePos, bool archive)>(0x8229F2C8);
+
 	char *(*Scr_ReadFile_FastFile)(const char *filename, const char *extFilename, const char *codePos, bool archive) = reinterpret_cast<char *(*)(const char *filename, const char *extFilename, const char *codePos, bool archive)>(0x8229F250);
 	void (*Scr_GetVector)(unsigned int index, float *vectorValue) = reinterpret_cast<void (*)(unsigned int index, float *vectorValue)>(0x822B35B8);
-
-	int (*FS_FOpenFileReadForThread)(const char *filename, _iobuf **file) = reinterpret_cast<int (*)(const char *filename, _iobuf **file)>(0x822F6530);
-	unsigned int (*FS_ReadFile)(const char *qpath, void **buffer) = reinterpret_cast<unsigned int (*)(const char *qpath, void **buffer)>(0x822F6730);
-	void (*FS_FCloseFile)(_iobuf *h) = reinterpret_cast<void (*)(_iobuf *h)>(0x822F63D8);
 }
 
 Detour Weapon_RocketLauncher_Fire_Detour;
@@ -107,29 +103,45 @@ void RemoveBrushCollisions()
 	game::CG_GameMessage(0, "Brush collision removed");
 }
 
-Detour Scr_AddSourceBuffer_Detour;
-
-char *Scr_AddSourceBuffer_Hook(const char *filename, const char *extFilename, const char *codePos, bool archive)
+std::string replaceSlashes(const char *path)
 {
-	// DbgPrint("[PLUGIN][Scr_AddSourceBuffer_Hook] filename=%s extFilename=%s\n", filename, extFilename);
-
-	// Load shadowed files from mod folder
-	char *path = game::va("mod/%s", extFilename);
-	_iobuf *file = nullptr;
-	auto file_size = game::FS_FOpenFileReadForThread(path, &file);
-
-	if (file_size != -1)
+	std::string str(path);
+	for (size_t i = 0; i < str.length(); ++i)
 	{
-		DbgPrint("[PLUGIN][Scr_AddSourceBuffer_Hook] Loading file from mod folder: FilePath=%s\n", path);
-		void *fileData = nullptr;
-		int result = game::FS_ReadFile(path, &fileData);
-		if (result)
-			return static_cast<char *>(fileData);
+		if (str[i] == '/')
+		{
+			str.replace(i, 1, "\\");
+			++i; // Skip the next index to avoid replacing already inserted backslashes
+		}
+	}
+	return str;
+}
 
-		game::FS_FCloseFile(file);
+Detour Scr_ReadFile_FastFile_Detour;
+
+char *Scr_ReadFile_FastFile_Hook(const char *filename, const char *extFilename, const char *codePos, bool archive)
+{
+	// Load shadowed files from mod folder
+	char *path = game::va("game:\\mod\\%s", replaceSlashes(extFilename).c_str());
+
+	std::ifstream file(path, std::ios::ate);
+	if (file.is_open())
+	{
+		DbgPrint("[PLUGIN][Scr_ReadFile_FastFile] loading script %s\n", path);
+
+		size_t fileSize = static_cast<size_t>(file.tellg());
+		char *fileContents = new char[fileSize + 1];
+
+		file.seekg(0, std::ios::beg);
+		file.read(fileContents, fileSize);
+		fileContents[fileSize] = '\0';
+
+		file.close();
+
+		return fileContents;
 	}
 
-	return game::Scr_ReadFile_FastFile(extFilename, extFilename, codePos, archive);
+	return Scr_ReadFile_FastFile_Detour.GetOriginal<char *(*)(const char *filename, const char *extFilename, const char *codePos, bool archive)>()(filename, extFilename, codePos, archive);
 }
 
 void ApplyBounceDepatch()
@@ -145,8 +157,8 @@ uint32_t PluginMain()
 
 	ApplyBounceDepatch();
 
-	Scr_AddSourceBuffer_Detour = Detour(game::Scr_AddSourceBuffer, Scr_AddSourceBuffer_Hook);
-	Scr_AddSourceBuffer_Detour.Install();
+	Scr_ReadFile_FastFile_Detour = Detour(game::Scr_ReadFile_FastFile, Scr_ReadFile_FastFile_Hook);
+	Scr_ReadFile_FastFile_Detour.Install();
 
 	Weapon_RocketLauncher_Fire_Detour = Detour(game::Weapon_RocketLauncher_Fire, Weapon_RocketLauncher_Fire_Hook);
 	Weapon_RocketLauncher_Fire_Detour.Install();
